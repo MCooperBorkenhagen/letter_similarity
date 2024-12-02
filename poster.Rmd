@@ -1,0 +1,140 @@
+---
+title: "results"
+output: html_document
+date: "2024-11-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(papaja)
+
+
+d = read_csv('data/Decoding Development Data DStaton Research (Responses) - Grid Data.csv') %>% 
+  left_join(read_csv('data/Decoding Development Data DStaton Research (Responses) - Participant Identifying # and basic information.csv'), by = join_by(participant_id == `Identifying Number`)) %>% 
+  left_join(
+read_csv('data/Decoding Development Data DStaton Research (Responses) - Assessment data.csv') %>% 
+  select(participant_id = `Identifying Number`,
+         ctopp_elision = `CTOPP - elision`,
+         ctopp_letter_naming = `CTOPP - rapid letter naming`,
+         wj4 = WJ4)) %>% 
+  mutate(x = as.numeric(x),
+         y = as.numeric(y)) %>% 
+  filter(!is.na(x) | !is.na(y)) %>% 
+  glimpse()
+
+assessments = read_csv('data/Decoding Development Data DStaton Research (Responses) - Assessment data.csv') %>% 
+  select(participant_id = `Identifying Number`,
+         ctopp_elision = `CTOPP - elision`,
+         ctopp_letter_naming = `CTOPP - rapid letter naming`,
+         wj4 = WJ4, grade = Grade)
+
+pca = d %>% 
+  select(x, y) %>% 
+  prcomp()
+
+d = cbind(d, pca$x)
+
+dms = list()
+
+for (id in unique(d$participant_id)){
+  
+  df = d %>% 
+    filter(participant_id == id) %>% 
+    select(letter, x, y)
+  
+  dm = df %>% 
+    select(x, y) %>% 
+    dist()
+  
+  tmp = as.matrix(dm)
+  rownames(tmp) = df$letter
+  colnames(tmp) = df$letter
+  
+  dms[[id]] = as.data.frame(as.table(tmp)) %>% 
+    rename(letter_1 = Var1, letter_2 = Var2, distance = Freq) %>% 
+    filter(letter_1 != letter_2) %>% 
+    filter(as.numeric(factor(letter_1)) > as.numeric(factor(letter_2))) %>% 
+    mutate(participant_id = id)
+  
+}
+
+vowels = c("a", "e", "i", "o", "u", "y")
+
+distances = purrr::list_rbind(dms) %>% 
+  mutate(letter_1_type = case_when(letter_1 %in% vowels ~ "vowel",
+                          TRUE ~ "consonant"),
+         letter_2_type = case_when(letter_2 %in% vowels ~ "vowel",
+                          TRUE ~ "consonant")) %>% 
+  left_join(assessments) %>% 
+  mutate(order = case_when(grade == "K" ~ 1,
+                           grade == "3" ~ 2))
+
+MSD = distances %>% 
+  group_by(participant_id) %>% 
+  summarise(mean_distance = mean(distance, na.rm = T),
+            sd_distance = sd(distance, na.rm = T))
+
+distances = distances %>% 
+  left_join(MSD) %>% 
+  mutate(distance_z = (distance - mean_distance)/ sd_distance)
+
+
+rm(df, dm, dms, tmp)
+```
+
+
+## Distances between target letters
+
+### "f" and "v"
+These are the average distances between the letters "f" and "v" among participants. The errorbars are standard errors of the mean.
+
+```{r}
+distances %>% 
+  filter(letter_1 == "v" & letter_2 == "f") %>% 
+  group_by(grade) %>% 
+  summarise(M = mean(distance, na.rm = T),
+             SD = sd(distance, na.rm = T),
+             SEM = SD/sqrt(N),
+             grade = first(grade),
+             order = first(order)) %>% 
+  ggplot(aes(reorder(grade, order), M, fill = factor(grade))) +
+  geom_bar(stat = "summary", color = "black") +
+  geom_errorbar(aes(ymin = M - SEM, ymax = M + SEM), width = .2) +
+  theme_apa() +
+  labs(title = 'The distance between "f" and "v"',
+       x = 'Grade', y = 'Distance') +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("skyblue4", "darkorange3"))
+
+```
+
+
+### "p" and "b"
+```{r}
+N = length(unique(distances$participant_id))
+
+distances %>% 
+  filter(letter_1 == "p" & letter_2 == "b") %>% 
+  group_by(grade) %>% 
+  summarise(M = mean(distance, na.rm = T),
+             SD = sd(distance, na.rm = T),
+             SEM = SD/sqrt(N),
+             grade = first(grade),
+             order = first(order)) %>% 
+  ggplot(aes(reorder(grade, order), M, fill = factor(grade))) +
+  geom_bar(stat = "summary", color = "black") +
+  geom_errorbar(aes(ymin = M - SEM, ymax = M + SEM), width = .2) +
+  theme_apa() +
+  labs(title = 'The distance between "p" and "b"',
+       x = 'Grade', y = 'Distance') +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("skyblue4", "darkorange3"))
+
+```
+
+
+
+
+
+
