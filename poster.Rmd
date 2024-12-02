@@ -8,7 +8,7 @@ date: "2024-11-29"
 knitr::opts_chunk$set(echo = TRUE)
 require(tidyverse)
 require(papaja)
-
+require(Hmisc)
 
 d = read_csv('data/Decoding Development Data DStaton Research (Responses) - Grid Data.csv') %>% 
   left_join(read_csv('data/Decoding Development Data DStaton Research (Responses) - Participant Identifying # and basic information.csv'), by = join_by(participant_id == `Identifying Number`)) %>% 
@@ -28,6 +28,8 @@ assessments = read_csv('data/Decoding Development Data DStaton Research (Respons
          ctopp_elision = `CTOPP - elision`,
          ctopp_letter_naming = `CTOPP - rapid letter naming`,
          wj4 = WJ4, grade = Grade)
+
+source("model_predictions.R")
 
 pca = d %>% 
   select(x, y) %>% 
@@ -77,10 +79,11 @@ MSD = distances %>%
 
 distances = distances %>% 
   left_join(MSD) %>% 
-  mutate(distance_z = (distance - mean_distance)/ sd_distance)
+  mutate(distance_z = (distance - mean_distance)/ sd_distance) %>% 
+  left_join(letter_distances, by = c("letter_1", "letter_2"))
 
 
-rm(df, dm, dms, tmp)
+rm(df, dm, dms, tmp, letter_distances)
 ```
 
 
@@ -90,7 +93,9 @@ rm(df, dm, dms, tmp)
 These are the average distances between the letters "f" and "v" among participants. The errorbars are standard errors of the mean.
 
 ```{r}
-distances %>% 
+N = length(unique(distances$participant_id))
+
+plot = distances %>% 
   filter(letter_1 == "v" & letter_2 == "f") %>% 
   group_by(grade) %>% 
   summarise(M = mean(distance, na.rm = T),
@@ -107,14 +112,15 @@ distances %>%
   theme(legend.position = "none") +
   scale_fill_manual(values = c("skyblue4", "darkorange3"))
 
+ggsave("figure_1.png", plot)
 ```
 
 
 ### "p" and "b"
 ```{r}
-N = length(unique(distances$participant_id))
 
-distances %>% 
+
+plot = distances %>% 
   filter(letter_1 == "p" & letter_2 == "b") %>% 
   group_by(grade) %>% 
   summarise(M = mean(distance, na.rm = T),
@@ -131,10 +137,29 @@ distances %>%
   theme(legend.position = "none") +
   scale_fill_manual(values = c("skyblue4", "darkorange3"))
 
+ggsave("figure_2.png", plot)
 ```
 
 
+## Correlation between orthographic distance and placement distance
+Here we focus on letters which are associated with specific/ reliable phonemes. We would expect for these letters that less skilled children would be more influenced by their visual properties.
+```{r}
 
+targets = c("b", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z")
 
+plot = distances %>% 
+  filter(letter_1 %nin% targets & letter_2 %nin% targets) %>% 
+  mutate(grade = factor(grade, levels = c("K", "3"))) %>% 
+  ggplot(aes(orthographic_distance_z, distance_z, color = grade)) +
+  #geom_point() +
+  geom_jitter(size = .5, width = .02) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~grade) +
+  theme_apa() +
+  labs(x = "Orthographic distance (from ANN)", y = "Student rated distance") +
+  theme(legend.position = "none") +
+  scale_color_manual(values = c("skyblue4", "darkorange3"))
 
+ggsave("figure_3.png", plot)
+```
 
