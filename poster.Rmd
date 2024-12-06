@@ -9,6 +9,7 @@ knitr::opts_chunk$set(echo = TRUE)
 require(tidyverse)
 require(papaja)
 require(Hmisc)
+require(forcats)
 
 d = read_csv('data/Decoding Development Data DStaton Research (Responses) - Grid Data.csv') %>% 
   left_join(read_csv('data/Decoding Development Data DStaton Research (Responses) - Participant Identifying # and basic information.csv'), by = join_by(participant_id == `Identifying Number`)) %>% 
@@ -143,9 +144,21 @@ ggsave("figure_2.png", plot)
 
 ## Correlation between orthographic distance and placement distance
 Here we focus on letters which are associated with specific/ reliable phonemes. We would expect for these letters that less skilled children would be more influenced by their visual properties.
+
+### Vowels
 ```{r}
 
-targets = c("b", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z")
+targets = c("b", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z", "c", "q", "x")
+
+annotations = distances %>% 
+  filter(letter_1 %nin% targets & letter_2 %nin% targets) %>% 
+  group_by(grade) %>% 
+  summarise(corr = cor(orthographic_distance_z, distance_z, method = "spearman")) %>%
+  mutate(annotation = str_c("ρ = ", round(corr, digits = 2)),
+         grade = factor(grade, levels = c("K", "3")),
+         x = c(-1.0, -1.0),
+         y = c(2, 2))
+
 
 plot = distances %>% 
   filter(letter_1 %nin% targets & letter_2 %nin% targets) %>% 
@@ -156,10 +169,199 @@ plot = distances %>%
   geom_smooth(method = "lm") +
   facet_wrap(~grade) +
   theme_apa() +
-  labs(x = "Orthographic distance (from ANN)", y = "Student rated distance") +
+  labs(title = "Vowels", x = "Orthographic distance (from ANN)", y = "Student rated distance") +
   theme(legend.position = "none") +
-  scale_color_manual(values = c("skyblue4", "darkorange3"))
+  scale_color_manual(values = c("darkorange3", "skyblue4")) +
+  geom_text(data = annotations, aes(x = x, y = y, label = annotation), size = 6, color = "black")
 
-ggsave("figure_3.png", plot)
+plot
+
+
+ggsave("figure_3a.png", plot)
+
+
+
+
 ```
+
+### Consonants
+```{r}
+
+targets = c("b", "d", "f", "g", "h", "j", "k", "l", "m", "n", "p", "r", "s", "t", "v", "w", "z", "c", "q", "x")
+
+
+annotations = distances %>% 
+  filter(letter_1 %in% targets & letter_2 %in% targets) %>% 
+  group_by(grade) %>% 
+  summarise(corr = cor(orthographic_distance_z, distance_z, method = "spearman")) %>%
+  mutate(annotation = str_c("ρ = ", round(corr, digits = 2)),
+         grade = factor(grade, levels = c("K", "3")),
+         x = c(1.8, 1.8),
+         y = c(2.7, 2.7))
+
+plot = distances %>% 
+  filter(letter_1 %in% targets & letter_2 %in% targets) %>% 
+  mutate(grade = factor(grade, levels = c("K", "3"))) %>% 
+  ggplot(aes(orthographic_distance_z, distance_z, color = grade)) +
+  #geom_point() +
+  geom_jitter(size = .5, width = .02) +
+  geom_smooth(method = "lm") +
+  facet_wrap(~grade) +
+  theme_apa() +
+  labs(title = "Consonants", x = "Orthographic distance (from ANN)", y = "Student rated distance") +
+  theme(legend.position = "none") +
+  scale_color_manual(values = c("darkorange3", "skyblue4")) +
+  geom_text(data = annotations, aes(x = x, y = y, label = annotation), size = 6, color = "black")
+
+plot
+ggsave("figure_3b.png", plot)
+
+
+```
+
+
+## Relative similarity of vowels versus consonants
+
+```{r}
+vowels = c("a", "e", "i", "o", "u", "y")
+consonants = letters[letters %nin% vowels]
+
+distances %>% 
+  mutate(condition = case_when((letter_1 %in% vowels & letter_2 %in% vowels) ~ "vowel",
+                               (letter_1 %in% consonants & letter_2 %in% consonants) ~ "consonant",
+                               TRUE ~ "mixed")) %>% 
+  ggplot(aes(condition, distance_z, fill = condition)) +
+  geom_bar(stat = "summary", color = "black") +
+  facet_wrap(~grade) +
+  theme_apa() +
+  labs(fill = "Condition", x = "Condition", y = "Distance (standardized)") +
+  scale_fill_manual(values = c("pink", "purple", "turquoise"))
+  
+
+```
+
+
+
+
+## As a function of skill level
+
+### Figure 4
+```{r}
+
+distance_correlation_per_participant = tibble(participant_id = unique(distances$participant_id))
+
+cors = c()
+
+for (participant in unique(distances$participant_id)){
+  
+  
+  rho  = distances %>% 
+    filter(participant_id == participant) %>% 
+    summarise(cor(distance_z, orthographic_distance_z, method = "spearman"))
+  
+  cors = c(cors, rho$`cor(distance_z, orthographic_distance_z, method = "spearman")`)
+  
+}
+
+distance_correlation_per_participant$rho = cors
+
+distance_correlations = distances %>% 
+  group_by(participant_id) %>% 
+  summarise(wj4 = first(wj4),
+            ctopp_elision = first(ctopp_elision),
+            ctopp_letter_naming = first(ctopp_letter_naming),
+            grade = first(grade)) %>% 
+  left_join(distance_correlation_per_participant)
+
+
+Ms = distance_correlations %>% 
+  group_by(grade) %>% 
+  summarise(rho = mean(rho)) %>% 
+  mutate(grade = forcats::fct_relevel(grade, "K", "1"))
+
+
+annotations = distance_correlations %>% 
+  filter(letter_1 %in% targets & letter_2 %in% targets) %>% 
+  group_by(grade) %>% 
+  summarise(corr = cor(orthographic_distance_z, distance_z, method = "spearman")) %>%
+  mutate(annotation = str_c("ρ = ", round(corr, digits = 2)),
+         grade = factor(grade, levels = c("K", "3")),
+         x = c(1.8, 1.8),
+         y = c(2.7, 2.7))
+
+
+annotations = distance_correlations %>% 
+  arrange(-desc(ctopp_elision)) %>% 
+  mutate(rank = seq_len(n()),
+         order = case_when(grade == "K" ~ 1,
+                           grade == "1" ~ 1)) %>% 
+  group_by(grade) %>% 
+  summarise(corr = cor(rank, rho)) %>% 
+  mutate(annotation = str_c("ρ = ", format(round(corr, digits = 2))),
+         grade = factor(grade, levels = c("K", "3")),
+         x = c(12, 8),
+         y = c(.09, .1))
+
+plot = distance_correlations %>% 
+  arrange(-desc(ctopp_elision)) %>% 
+  mutate(rank = seq_len(n()),
+         grade = fct_relevel(grade, "K", "1")) %>% 
+  ggplot(aes(rank, rho, label = participant_id, fill = grade, color = grade)) +
+  #ggplot(aes(ctopp_elision, rho, label = participant_id)) +
+  geom_hline(data = Ms, linetype = "dashed", aes(yintercept = rho), color = "grey36") +
+  geom_smooth(method = "lm") +
+  geom_point(color = "black") +
+  theme_apa() +
+  labs(x = "Phonological processing", y = "Orthographic influence on rated distance", fill = "Grade") +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c("darkorange3", "skyblue4")) +
+  scale_color_manual(values = c("darkorange3", "skyblue4"))  +
+  facet_wrap(~grade, scales = "free_x") +
+  geom_text(data = annotations, aes(x = x, y = y, label = annotation), size = 6, color = "black")
+
+plot
+
+
+ggsave("png/figure_4a.png", plot)
+
+
+
+annotations = distance_correlations %>% 
+  mutate(order = case_when(grade == "K" ~ 1,
+                           grade == "1" ~ 1)) %>% 
+  group_by(grade) %>% 
+  summarise(corr = cor(wj4, rho)) %>% 
+  mutate(annotation = str_c("ρ = ", format(round(corr, digits = 2))),
+         grade = factor(grade, levels = c("K", "3")),
+         x = c(35, 25),
+         y = c(.1, .1))
+
+
+plot = distance_correlations  %>% 
+  mutate(rank = seq_len(n()),
+  grade = fct_relevel(grade, "K", "1")) %>% 
+  #ggplot(aes(wj4, rho, label = participant_id, fill = grade)) +
+  ggplot(aes(wj4, rho, label = participant_id, fill = grade, color = grade)) +
+  geom_smooth(method = "lm") +
+  #geom_smooth(method = "loess", se = F, linetype = "dashed", color = "black") +
+  geom_point(color = "black") +
+  theme_apa() +
+  facet_wrap(~grade, scales = "free_x") +
+  geom_hline(data = Ms, linetype = "dashed", aes(yintercept = rho), color = "grey36") +
+  labs(x = "Letter/word ID", y = "Orthographic influence on rated distance") +
+  theme(legend.position = "none") +
+  scale_fill_manual(values = c( "darkorange3", "skyblue4")) +
+  scale_color_manual(values = c("darkorange3", "skyblue4")) +
+  geom_text(data = annotations, aes(x = x, y = y, label = annotation), size = 6, color = "black")
+
+plot
+
+ggsave("png/figure_4b.png", plot)
+
+
+
+
+
+```
+
 
